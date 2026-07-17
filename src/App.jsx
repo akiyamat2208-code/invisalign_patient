@@ -8,15 +8,15 @@ import CalendarModal from './components/CalendarModal'
 
 export default function App() {
   const [page, setPage] = useState('list')
-  const [patients, setPatients] = useState([])   // DB生データ
-  const [phases, setPhases] = useState([])        // DB生データ
+  const [patients, setPatients] = useState([])
+  const [phases, setPhases] = useState([])
   const [doctors, setDoctors] = useState([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState(null)
   const [modalPatient, setModalPatient] = useState(null)
   const [calPatient, setCalPatient] = useState(null)
-  const [visitDates, setVisitDates] = useState({})     // {pid: {phaseNo: {date: type}}}
-  const [recalcHistory, setRecalcHistory] = useState({}) // {pid: {phaseNo: [{stage,date}]}}
+  const [visitDates, setVisitDates] = useState({})
+  const [recalcHistory, setRecalcHistory] = useState({})
 
   const showToast = useCallback((msg) => {
     setToast(msg); setTimeout(() => setToast(null), 2500)
@@ -75,14 +75,12 @@ export default function App() {
     }
   }
 
-  // ── 患者登録 ──
   async function addPatient(p) {
     const { data, error } = await supabase.from('patients').insert([{
       chart_no: p.chart, name: p.name, dob: p.dob === '—' ? null : p.dob,
       patient_type: p.type, doctor: p.doc || null, notes: p.notes || null
     }]).select().single()
     if (error || !data) { showToast('登録に失敗しました'); return false }
-    // フェーズ1を登録
     const { error: pe } = await supabase.from('phases').insert([{
       patient_id: data.id, phase_no: 1,
       total_aligners: p.total, current_aligner: p.cur,
@@ -90,20 +88,17 @@ export default function App() {
       cycle_days: parseInt(p.cyc), ipr_stages: p.ipr_stages || []
     }])
     if (pe) { showToast('フェーズ登録に失敗しました'); return false }
-    // 来院日を登録
     await syncVisitDates(data.id, 1, p.start, p.at, '')
     showToast(p.name + 'を登録しました')
     return true
   }
 
-  // ── 患者更新（1回目フェーズのみ） ──
   async function updatePatient(p) {
     const { error } = await supabase.from('patients').update({
       chart_no: p.chart, name: p.name, dob: p.dob === '—' ? null : p.dob,
       patient_type: p.type, doctor: p.doc || null, notes: p.notes || null
     }).eq('id', p.id)
     if (error) { showToast('更新に失敗しました'); return false }
-    // フェーズ1更新
     const { error: pe } = await supabase.from('phases').update({
       total_aligners: p.total, current_aligner: p.cur,
       start_date: p.start, at_date: p.at || null,
@@ -115,7 +110,13 @@ export default function App() {
     return true
   }
 
-  // ── 追加アライナー登録 ──
+  async function deletePatient(id) {
+    const { error } = await supabase.from('patients').delete().eq('id', id)
+    if (error) { showToast('削除に失敗しました'); return false }
+    showToast('患者を削除しました')
+    return true
+  }
+
   async function addPhase(patientId, phaseNo, ph) {
     const { error } = await supabase.from('phases').insert([{
       patient_id: patientId, phase_no: phaseNo,
@@ -129,7 +130,6 @@ export default function App() {
     return true
   }
 
-  // ── 追加アライナー更新 ──
   async function updatePhase(patientId, phaseNo, ph) {
     const { error } = await supabase.from('phases').update({
       total_aligners: ph.total, current_aligner: ph.cur,
@@ -140,7 +140,18 @@ export default function App() {
     return true
   }
 
-  // ── 来院日同期 ──
+  async function deletePhase(patientId, phaseNo) {
+    await supabase.from('visit_dates').delete()
+      .eq('patient_id', patientId).eq('phase_no', phaseNo)
+    await supabase.from('recalc_history').delete()
+      .eq('patient_id', patientId).eq('phase_no', phaseNo)
+    const { error } = await supabase.from('phases').delete()
+      .eq('patient_id', patientId).eq('phase_no', phaseNo)
+    if (error) { showToast('削除に失敗しました'); return false }
+    showToast('追加アライナーを削除しました')
+    return true
+  }
+
   async function syncVisitDates(patientId, phaseNo, start, at, next) {
     const rows = []
     if (start) rows.push({ patient_id: patientId, phase_no: phaseNo, date: start, type: 'first' })
@@ -151,7 +162,6 @@ export default function App() {
     }
   }
 
-  // ── 来院日トグル ──
   async function toggleVisit(patientId, phaseNo, dateStr) {
     const vd = (visitDates[patientId] || {})[phaseNo] || {}
     const cur = vd[dateStr]
@@ -168,7 +178,6 @@ export default function App() {
     await fetchVisitDates()
   }
 
-  // ── カレンダー保存 ──
   async function saveCalendar(patientId, phaseNo) {
     const vd = (visitDates[patientId] || {})[phaseNo] || {}
     const today = fmtDate(new Date())
@@ -180,19 +189,17 @@ export default function App() {
             .eq('patient_id', patientId).eq('phase_no', phaseNo).eq('date', k)
         }
       }
-      const newNext = future[0]
       await supabase.from('visit_dates').upsert(
-        [{ patient_id: patientId, phase_no: phaseNo, date: newNext, type: 'visit' }],
+        [{ patient_id: patientId, phase_no: phaseNo, date: future[0], type: 'visit' }],
         { onConflict: 'patient_id,phase_no,date' }
       )
-      showToast('次回来院日を ' + newNext + ' に更新しました')
+      showToast('次回来院日を ' + future[0] + ' に更新しました')
     } else {
       showToast('今日以降の来院日がありません')
     }
     await fetchVisitDates()
   }
 
-  // ── 再計算履歴保存 ──
   async function addRecalc(patientId, phaseNo, stage, date) {
     const { error } = await supabase.from('recalc_history').insert([{
       patient_id: patientId, phase_no: phaseNo, stage, new_date: date
@@ -203,24 +210,15 @@ export default function App() {
     return true
   }
 
-  // ── 再計算履歴リセット ──
   async function resetRecalc(patientId, phaseNo) {
     await supabase.from('recalc_history')
       .delete().eq('patient_id', patientId).eq('phase_no', phaseNo)
     await fetchRecalcHistory()
     showToast('再計算履歴をリセットしました')
   }
-// ── 患者削除 ──
-  async function deletePatient(id) {
-    const { error } = await supabase.from('patients').delete().eq('id', id)
-    if (error) { showToast('削除に失敗しました'); return false }
-    showToast('患者を削除しました')
-    return true
-  }
-  // ── 担当医CRUD ──
+
   async function addDoctor(name) {
-    const { error } = await supabase.from('doctors').insert([{ name, sort_order: doctors.length }])
-    if (error) showToast('追加に失敗しました')
+    await supabase.from('doctors').insert([{ name, sort_order: doctors.length }])
   }
   async function updateDoctor(oldName, newName) {
     await supabase.from('doctors').update({ name: newName }).eq('name', oldName)
@@ -237,7 +235,6 @@ export default function App() {
   function pad(n) { return n < 10 ? '0' + n : '' + n }
   function fmtDate(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) }
 
-  // UI用データ変換：患者 + フェーズを結合
   const uiPatients = patients.map(p => {
     const pPhases = phases
       .filter(ph => ph.patient_id === p.id)
@@ -273,16 +270,15 @@ export default function App() {
           <button className="btn btn-blue" style={{ fontSize:'12px', padding:'6px 12px' }} onClick={() => setPage('add')}>＋ 新規患者</button>
         </div>
       </div>
-
       <div className="content" style={{ flex:1 }}>
-        {loading && <div className="loading">データを読み込み中...</div>}
+        {loading && <div style={{padding:'20px',textAlign:'center',color:'#888'}}>データを読み込み中...</div>}
         {!loading && page === 'list' && (
           <PatientList
             patients={uiPatients}
             visitDates={visitDates}
             onOpenModal={p => setModalPatient(p)}
-            onOpenCal={p => { setCalPatient(p) }}
-            onOpenAddAligner={p => { setCalPatient(p) }}
+            onOpenCal={p => setCalPatient(p)}
+            onOpenAddAligner={p => setCalPatient(p)}
             onDelete={async (id) => { await deletePatient(id) }}
           />
         )}
@@ -302,7 +298,6 @@ export default function App() {
           />
         )}
       </div>
-
       {modalPatient && (
         <PatientModal
           patient={uiPatients.find(p => p.id === modalPatient.id) || modalPatient}
@@ -311,9 +306,9 @@ export default function App() {
           onUpdate={async (p) => { const ok = await updatePatient(p); if (ok) setModalPatient(null) }}
           onUpdatePhase={async (pid, phNo, ph) => { await updatePhase(pid, phNo, ph) }}
           onOpenCal={(p) => { setModalPatient(null); setCalPatient(p) }}
+          onDelete={async (id) => { const ok = await deletePatient(id); if (ok) setModalPatient(null) }}
         />
       )}
-
       {calPatient && (() => {
         const latest = uiPatients.find(p => p.id === calPatient.id) || calPatient
         return (
@@ -328,10 +323,10 @@ export default function App() {
             onUpdatePhase={(phaseNo, ph) => updatePhase(latest.id, phaseNo, ph)}
             onAddRecalc={(phaseNo, stage, date) => addRecalc(latest.id, phaseNo, stage, date)}
             onResetRecalc={(phaseNo) => resetRecalc(latest.id, phaseNo)}
+            onDeletePhase={(phaseNo) => deletePhase(latest.id, phaseNo)}
           />
         )
       })()}
-
       {toast && <div className="toast">{toast}</div>}
       <div id="print-area" />
     </div>
