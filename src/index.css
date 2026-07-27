@@ -125,7 +125,7 @@ input, textarea, select { font-family: inherit; }
 .cal-dow-row { display:grid; grid-template-columns:repeat(7,1fr); }
 .cal-dow-cell { text-align:center; font-size:8px; font-weight:600; color:#888; padding:2px 0; background:#f9f9f8; }
 .cal-day-row { display:grid; grid-template-columns:repeat(7,1fr); }
-.cal-day-cell { border-right:1px solid #f0f0f0; border-bottom:1px solid #f0f0f0; cursor:pointer; user-select:none; height:38px; overflow:hidden; display:flex; flex-direction:column; background:#fff; }
+.cal-day-cell { border-right:1px solid #f0f0f0; border-bottom:1px solid #f0f0f0; cursor:pointer; user-select:none; height:42px; overflow:hidden; display:flex; flex-direction:column; background:#fff; }
 .cal-day-cell:nth-child(7n) { border-right:none; }
 .cal-day-cell.empty { cursor:default; background:#fafafa; }
 .cal-day-cell.bg-first { background:#fee2e2; }
