@@ -1,122 +1,334 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { supabase } from './lib/supabase'
+import PatientList from './components/PatientList'
+import PatientForm from './components/PatientForm'
+import Settings from './components/Settings'
+import PatientModal from './components/PatientModal'
+import CalendarModal from './components/CalendarModal'
 
-const CIRC = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩','⑪','⑫','⑬','⑭','⑮','⑯','⑰','⑱','⑲','⑳','㉑','㉒','㉓','㉔','㉕','㉖','㉗','㉘','㉙','㉚']
-function toC(n) { return n >= 1 && n <= 30 ? CIRC[n-1] : '('+n+')' }
+export default function App() {
+  const [page, setPage] = useState('list')
+  const [patients, setPatients] = useState([])
+  const [phases, setPhases] = useState([])
+  const [doctors, setDoctors] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [toast, setToast] = useState(null)
+  const [modalPatient, setModalPatient] = useState(null)
+  const [calPatient, setCalPatient] = useState(null)
+  const [visitDates, setVisitDates] = useState({})
+  const [recalcHistory, setRecalcHistory] = useState({})
 
-function bType(t) { return t==='pedo'?<span className="badge b-pedo">小児矯正</span>:<span className="badge b-adult">成人矯正</span> }
-function bCyc(c)  { return c==='5'?<span className="badge b-c5">5日</span>:<span className="badge b-c7">7日</span> }
-function bDoc(d)  { return d?<span className="badge b-doc">{d}</span>:<span style={{fontSize:'10px',color:'#bbb'}}>—</span> }
+  const showToast = useCallback((msg) => {
+    setToast(msg); setTimeout(() => setToast(null), 2500)
+  }, [])
 
-function getNext(p, visitDates) {
-  const lp = p.phases[p.phases.length - 1]
-  const vd = (visitDates[p.id] || {})[lp?.phaseNo] || {}
-  const today = new Date().toISOString().split('T')[0]
-  return Object.keys(vd).filter(k => (vd[k]==='visit'||vd[k]==='manual') && k >= today).sort()[0] || ''
-}
-
-export default function PatientList({ patients, visitDates={}, onOpenModal, onOpenCal, onOpenAddAligner, onDelete }) {
-  const [tab, setTab]   = useState('all')
-  const [q, setQ]       = useState('')
-  const [sKey, setSKey] = useState('chart')
-  const [sDir, setSDir] = useState('asc')
-
-  function doSort(k) {
-    if (sKey === k) setSDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSKey(k); setSDir('asc') }
-  }
-
-  const now = new Date()
-  const totalCount = patients.length
-  const adultCount = patients.filter(p => p.type === 'adult').length
-  const pedoCount  = patients.filter(p => p.type === 'pedo').length
-  const monthCount = patients.filter(p => {
-    const n = getNext(p, visitDates)
-    if (!n) return false
-    const d = new Date(n)
-    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
-  }).length
-
-  const list = patients
-    .filter(p => (p.name.toLowerCase().includes(q.toLowerCase()) || p.chart.includes(q)) && (tab === 'all' || p.type === tab))
-    .sort((a, b) => {
-      const lpa = a.phases[a.phases.length-1] || {}
-      const lpb = b.phases[b.phases.length-1] || {}
-      let va, vb
-      if (sKey === 'name')   { va = a.name; vb = b.name }
-      else if (sKey === 'doc')  { va = a.doc||''; vb = b.doc||'' }
-      else if (sKey === 'prog') { va = lpa.cur/lpa.total||0; vb = lpb.cur/lpb.total||0 }
-      else if (sKey === 'next') { va = getNext(a,visitDates)||'9999'; vb = getNext(b,visitDates)||'9999' }
-      else { va = +a.chart; vb = +b.chart }
-      return va < vb ? (sDir==='asc'?-1:1) : va > vb ? (sDir==='asc'?1:-1) : 0
-    })
-
-  function SortBtn({ k, label }) {
-    const active = sKey === k
-    return (
-      <button className={'sort-btn'+(active?' '+sDir:'')} onClick={() => doSort(k)}>{label}</button>
+  useEffect(() => {
+    fetchAll()
+    const subs = ['patients','phases','visit_dates','recalc_history','doctors'].map(table =>
+      supabase.channel(table+'-ch')
+        .on('postgres_changes', { event: '*', schema: 'public', table }, () => fetchAll())
+        .subscribe()
     )
+    return () => subs.forEach(s => supabase.removeChannel(s))
+  }, [])
+
+  async function fetchAll() {
+    setLoading(true)
+    await Promise.all([fetchPatients(), fetchPhases(), fetchDoctors(), fetchVisitDates(), fetchRecalcHistory()])
+    setLoading(false)
   }
+
+  async function fetchPatients() {
+    const { data } = await supabase.from('patients').select('*').order('chart_no', { ascending: true })
+    if (data) setPatients(data)
+  }
+  async function fetchPhases() {
+    const { data } = await supabase.from('phases').select('*').order('phase_no', { ascending: true })
+    if (data) setPhases(data)
+  }
+  async function fetchDoctors() {
+    const { data } = await supabase.from('doctors').select('*').order('sort_order', { ascending: true })
+    if (data) setDoctors(data.map(d => d.name))
+  }
+  async function fetchVisitDates() {
+    const { data } = await supabase.from('visit_dates').select('*')
+    if (data) {
+      const map = {}
+      data.forEach(row => {
+        if (!map[row.patient_id]) map[row.patient_id] = {}
+        if (!map[row.patient_id][row.phase_no]) map[row.patient_id][row.phase_no] = {}
+        map[row.patient_id][row.phase_no][row.date] = row.type
+      })
+      setVisitDates(map)
+    }
+  }
+  async function fetchRecalcHistory() {
+    const { data } = await supabase.from('recalc_history').select('*').order('created_at', { ascending: true })
+    if (data) {
+      const map = {}
+      data.forEach(row => {
+        if (!map[row.patient_id]) map[row.patient_id] = {}
+        if (!map[row.patient_id][row.phase_no]) map[row.patient_id][row.phase_no] = []
+        map[row.patient_id][row.phase_no].push({ stage: row.stage, date: row.new_date })
+      })
+      setRecalcHistory(map)
+    }
+  }
+
+  async function addPatient(p) {
+    const { data, error } = await supabase.from('patients').insert([{
+      chart_no: p.chart, name: p.name, dob: p.dob === '—' ? null : p.dob,
+      patient_type: p.type, doctor: p.doc || null, notes: p.notes || null
+    }]).select().single()
+    if (error || !data) { showToast('登録に失敗しました'); return false }
+    const { error: pe } = await supabase.from('phases').insert([{
+      patient_id: data.id, phase_no: 1,
+      total_aligners: p.total, current_aligner: p.cur,
+      start_date: p.start, at_date: p.at || null,
+      cycle_days: parseInt(p.cyc), ipr_stages: p.ipr_stages || []
+    }])
+    if (pe) { showToast('フェーズ登録に失敗しました'); return false }
+    await syncVisitDates(data.id, 1, p.start, p.at, '')
+    showToast(p.name + 'を登録しました')
+    return true
+  }
+
+  async function updatePatient(p) {
+    const { error } = await supabase.from('patients').update({
+      chart_no: p.chart, name: p.name, dob: p.dob === '—' ? null : p.dob,
+      patient_type: p.type, doctor: p.doc || null, notes: p.notes || null
+    }).eq('id', p.id)
+    if (error) { showToast('更新に失敗しました'); return false }
+    const { error: pe } = await supabase.from('phases').update({
+      total_aligners: p.total, current_aligner: p.cur,
+      start_date: p.start, at_date: p.at || null,
+      cycle_days: parseInt(p.cyc), ipr_stages: p.ipr_stages || []
+    }).eq('patient_id', p.id).eq('phase_no', 1)
+    if (pe) { showToast('フェーズ更新に失敗しました'); return false }
+    await syncVisitDates(p.id, 1, p.start, p.at, '')
+    showToast('変更を保存しました')
+    return true
+  }
+
+  async function deletePatient(id) {
+    const { error } = await supabase.from('patients').delete().eq('id', id)
+    if (error) { showToast('削除に失敗しました'); return false }
+    showToast('患者を削除しました')
+    return true
+  }
+
+  async function addPhase(patientId, phaseNo, ph) {
+    const { error } = await supabase.from('phases').insert([{
+      patient_id: patientId, phase_no: phaseNo,
+      total_aligners: ph.total, current_aligner: 1,
+      start_date: ph.start, at_date: null,
+      cycle_days: parseInt(ph.cyc), ipr_stages: ph.ipr_stages || []
+    }])
+    if (error) { showToast('追加アライナー登録に失敗しました'); return false }
+    await syncVisitDates(patientId, phaseNo, ph.start, null, '')
+    showToast(phaseNo + '回目のスケジュールを登録しました')
+    return true
+  }
+
+  async function updatePhase(patientId, phaseNo, ph) {
+    const { error } = await supabase.from('phases').update({
+      total_aligners: ph.total, current_aligner: ph.cur,
+      start_date: ph.start, cycle_days: parseInt(ph.cyc), ipr_stages: ph.ipr_stages || []
+    }).eq('patient_id', patientId).eq('phase_no', phaseNo)
+    if (error) { showToast('更新に失敗しました'); return false }
+    showToast('変更を保存しました')
+    return true
+  }
+
+  async function deletePhase(patientId, phaseNo) {
+    await supabase.from('visit_dates').delete()
+      .eq('patient_id', patientId).eq('phase_no', phaseNo)
+    await supabase.from('recalc_history').delete()
+      .eq('patient_id', patientId).eq('phase_no', phaseNo)
+    const { error } = await supabase.from('phases').delete()
+      .eq('patient_id', patientId).eq('phase_no', phaseNo)
+    if (error) { showToast('削除に失敗しました'); return false }
+    showToast('追加アライナーを削除しました')
+    return true
+  }
+
+  async function syncVisitDates(patientId, phaseNo, start, at, next) {
+    const rows = []
+    if (start) rows.push({ patient_id: patientId, phase_no: phaseNo, date: start, type: 'first' })
+    if (at) rows.push({ patient_id: patientId, phase_no: phaseNo, date: at, type: 'at' })
+    if (next) rows.push({ patient_id: patientId, phase_no: phaseNo, date: next, type: 'visit' })
+    if (rows.length > 0) {
+      await supabase.from('visit_dates').upsert(rows, { onConflict: 'patient_id,phase_no,date' })
+    }
+  }
+
+  async function toggleVisit(patientId, phaseNo, dateStr) {
+    const vd = (visitDates[patientId] || {})[phaseNo] || {}
+    const cur = vd[dateStr]
+    if (cur === 'first' || cur === 'at') return
+    if (cur === 'visit' || cur === 'manual') {
+      await supabase.from('visit_dates').delete()
+        .eq('patient_id', patientId).eq('phase_no', phaseNo).eq('date', dateStr)
+    } else {
+      await supabase.from('visit_dates').upsert(
+        [{ patient_id: patientId, phase_no: phaseNo, date: dateStr, type: 'manual' }],
+        { onConflict: 'patient_id,phase_no,date' }
+      )
+    }
+    await fetchVisitDates()
+  }
+
+  async function saveCalendar(patientId, phaseNo) {
+    const vd = (visitDates[patientId] || {})[phaseNo] || {}
+    const today = fmtDate(new Date())
+    const future = Object.keys(vd).filter(k => (vd[k] === 'visit' || vd[k] === 'manual') && k >= today).sort()
+    if (future.length > 0) {
+      for (const k of Object.keys(vd)) {
+        if (vd[k] === 'visit') {
+          await supabase.from('visit_dates').update({ type: 'manual' })
+            .eq('patient_id', patientId).eq('phase_no', phaseNo).eq('date', k)
+        }
+      }
+      await supabase.from('visit_dates').upsert(
+        [{ patient_id: patientId, phase_no: phaseNo, date: future[0], type: 'visit' }],
+        { onConflict: 'patient_id,phase_no,date' }
+      )
+      showToast('次回来院日を ' + future[0] + ' に更新しました')
+    } else {
+      showToast('今日以降の来院日がありません')
+    }
+    await fetchVisitDates()
+  }
+
+  async function addRecalc(patientId, phaseNo, stage, date) {
+    const { error } = await supabase.from('recalc_history').insert([{
+      patient_id: patientId, phase_no: phaseNo, stage, new_date: date
+    }])
+    if (error) { showToast('再計算の保存に失敗しました'); return false }
+    await fetchRecalcHistory()
+    showToast('再計算を保存しました')
+    return true
+  }
+
+  async function resetRecalc(patientId, phaseNo) {
+    await supabase.from('recalc_history')
+      .delete().eq('patient_id', patientId).eq('phase_no', phaseNo)
+    await fetchRecalcHistory()
+    showToast('再計算履歴をリセットしました')
+  }
+
+  async function addDoctor(name) {
+    await supabase.from('doctors').insert([{ name, sort_order: doctors.length }])
+  }
+  async function updateDoctor(oldName, newName) {
+    await supabase.from('doctors').update({ name: newName }).eq('name', oldName)
+  }
+  async function deleteDoctor(name) {
+    await supabase.from('doctors').delete().eq('name', name)
+  }
+  async function reorderDoctors(newOrder) {
+    for (let i = 0; i < newOrder.length; i++) {
+      await supabase.from('doctors').update({ sort_order: i }).eq('name', newOrder[i])
+    }
+  }
+
+  function pad(n) { return n < 10 ? '0' + n : '' + n }
+  function fmtDate(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) }
+
+  const uiPatients = patients.map(p => {
+    const pPhases = phases
+      .filter(ph => ph.patient_id === p.id)
+      .sort((a, b) => a.phase_no - b.phase_no)
+      .map(ph => ({
+        phaseNo: ph.phase_no,
+        total: ph.total_aligners,
+        cur: ph.current_aligner,
+        start: ph.start_date,
+        at: ph.at_date || '',
+        cyc: String(ph.cycle_days),
+        ipr_stages: ph.ipr_stages || []
+      }))
+    return {
+      id: p.id, chart: p.chart_no, name: p.name, dob: p.dob || '—',
+      type: p.patient_type, doc: p.doctor || '', notes: p.notes || '',
+      phases: pPhases.length > 0 ? pPhases : [{
+        phaseNo: 1, total: 0, cur: 1, start: '', at: '', cyc: '7', ipr_stages: []
+      }]
+    }
+  })
 
   return (
-    <>
-      <div className="stats">
-        <div className="stat"><div className="stat-lbl">総患者数</div><div className="stat-val">{totalCount}</div><div className="stat-sub">登録済み</div></div>
-        <div className="stat"><div className="stat-lbl">成人矯正</div><div className="stat-val">{adultCount}</div><div className="stat-sub">成人患者</div></div>
-        <div className="stat"><div className="stat-lbl">小児矯正</div><div className="stat-val">{pedoCount}</div><div className="stat-sub">小児患者</div></div>
-        <div className="stat"><div className="stat-lbl">今月の来院</div><div className="stat-val">{monthCount}</div><div className="stat-sub">予定あり</div></div>
-      </div>
-      <div className="filter-row">
-        <div className="tabs">
-          {['all','adult','pedo'].map(t => (
-            <button key={t} className={'tab'+(tab===t?' on':'')} onClick={() => setTab(t)}>
-              {t==='all'?'すべて':t==='adult'?'成人矯正':'小児矯正'}
-            </button>
-          ))}
+    <div className="app" style={{ display:'flex', flexDirection:'column', minHeight:'100vh' }}>
+      <div className="topbar">
+        <span className="logo">InvisAlign Pro</span>
+        <div className="top-right">
+          <button className="icon-btn" title="設定" onClick={() => setPage('settings')}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
+          <button className="btn btn-blue" style={{ fontSize:'12px', padding:'6px 12px' }} onClick={() => setPage('add')}>＋ 新規患者</button>
         </div>
-        <input className="search-inp" value={q} onChange={e=>setQ(e.target.value)} placeholder="患者名・カルテ番号で検索..." />
       </div>
-      <div className="tbl-wrap"><div className="tbl">
-        <div className="tbl-hd">
-          <div><SortBtn k="chart" label="カルテ番号" /></div>
-          <div><SortBtn k="name" label="患者名" /></div>
-          <div>区分</div>
-          <div><SortBtn k="doc" label="担当" /></div>
-          <div>交換</div>
-          <div><SortBtn k="prog" label="進捗" /></div>
-          <div><SortBtn k="next" label="次回来院日" /></div>
-          <div>操作</div>
-        </div>
-        {list.length === 0 && <div style={{padding:'20px',textAlign:'center',color:'#bbb',fontSize:'12px'}}>患者が見つかりません</div>}
-        {list.map(p => {
-          const lp = p.phases[p.phases.length-1] || {}
-          const pct = lp.total ? Math.round(lp.cur/lp.total*100) : 0
-          const nxt = getNext(p, visitDates)
-          const hasExtra = p.phases.length > 1
-          return (
-            <div key={p.id} className="tbl-row" onClick={() => onOpenModal(p)}>
-              <div style={{fontWeight:600,color:'#555',fontSize:'11px'}}>{p.chart}</div>
-              <div style={{fontWeight:600,color:'#111',fontSize:'11px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                {p.name}
-                {hasExtra && <span className="badge b-add" style={{marginLeft:'4px'}}>追加アライナー</span>}
-              </div>
-              <div>{bType(p.type)}</div>
-              <div>{bDoc(p.doc)}</div>
-              <div>{bCyc(lp.cyc||'7')}</div>
-              <div>
-                <div style={{fontSize:'10px',color:'#888'}}>{lp.cur}/{lp.total} ({pct}%)</div>
-                <div className="prog"><div className="prog-fill" style={{width:pct+'%'}}></div></div>
-              </div>
-              <div style={{fontSize:'10px',color:nxt?'#111':'#bbb'}}>{nxt||'—'}</div>
-              <div className="cell-ops">
-                <button className="btn-sm" onClick={e=>{e.stopPropagation();onOpenModal(p)}}>編集</button>
-                <button className="btn-sm-green" onClick={e=>{e.stopPropagation();onOpenCal(p)}}>📅</button>
-                <button className="btn-sm-gray" onClick={e=>{e.stopPropagation();onOpenAddAligner(p)}}>＋追加アライナー</button>
-                <button className="btn-sm" style={{color:'#dc2626',borderColor:'#fca5a5'}} onClick={e=>{e.stopPropagation();if(confirm(p.name+'を削除しますか？この操作は取り消せません。'))onDelete(p.id)}}>削除</button>
-              </div>
-            </div>
-          )
-        })}
-      </div></div>
-    </>
+      <div className="content" style={{ flex:1 }}>
+        {loading && <div style={{padding:'20px',textAlign:'center',color:'#888'}}>データを読み込み中...</div>}
+        {!loading && page === 'list' && (
+          <PatientList
+            patients={uiPatients}
+            visitDates={visitDates}
+            onOpenModal={p => setModalPatient(p)}
+            onOpenCal={p => setCalPatient(p)}
+            onOpenAddAligner={p => setCalPatient(p)}
+            onDelete={async (id) => { await deletePatient(id) }}
+          />
+        )}
+        {!loading && page === 'add' && (
+          <PatientForm
+            doctors={doctors}
+            onSubmit={async (p) => { const ok = await addPatient(p); if (ok) setPage('list') }}
+            onCancel={() => setPage('list')}
+          />
+        )}
+        {!loading && page === 'settings' && (
+          <Settings
+            doctors={doctors}
+            onAdd={addDoctor} onUpdate={updateDoctor}
+            onDelete={deleteDoctor} onReorder={reorderDoctors}
+            onBack={() => setPage('list')}
+          />
+        )}
+      </div>
+      {modalPatient && (
+        <PatientModal
+          patient={uiPatients.find(p => p.id === modalPatient.id) || modalPatient}
+          doctors={doctors}
+          onClose={() => setModalPatient(null)}
+          onUpdate={async (p) => { const ok = await updatePatient(p); if (ok) setModalPatient(null) }}
+          onUpdatePhase={async (pid, phNo, ph) => { await updatePhase(pid, phNo, ph) }}
+          onOpenCal={(p) => { setModalPatient(null); setCalPatient(p) }}
+          onDelete={async (id) => { const ok = await deletePatient(id); if (ok) setModalPatient(null) }}
+        />
+      )}
+      {calPatient && (() => {
+        const latest = uiPatients.find(p => p.id === calPatient.id) || calPatient
+        return (
+          <CalendarModal
+            patient={latest}
+            visitDates={visitDates[latest.id] || {}}
+            recalcHistory={recalcHistory[latest.id] || {}}
+            onClose={() => setCalPatient(null)}
+            onToggleVisit={(phaseNo, date) => toggleVisit(latest.id, phaseNo, date)}
+            onSave={(phaseNo) => saveCalendar(latest.id, phaseNo)}
+            onAddPhase={(phaseNo, ph) => addPhase(latest.id, phaseNo, ph)}
+            onUpdatePhase={(phaseNo, ph) => updatePhase(latest.id, phaseNo, ph)}
+            onAddRecalc={(phaseNo, stage, date) => addRecalc(latest.id, phaseNo, stage, date)}
+            onResetRecalc={(phaseNo) => resetRecalc(latest.id, phaseNo)}
+            onDeletePhase={(phaseNo) => deletePhase(latest.id, phaseNo)}
+          />
+        )
+      })()}
+      {toast && <div className="toast">{toast}</div>}
+      <div id="print-area" />
+    </div>
   )
 }
