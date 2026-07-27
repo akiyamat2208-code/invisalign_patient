@@ -1,23 +1,12 @@
-import { useState } from 'react'
 import PatientForm from './PatientForm'
 
 const CIRC = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩','⑪','⑫','⑬','⑭','⑮','⑯','⑰','⑱','⑲','⑳','㉑','㉒','㉓','㉔','㉕','㉖','㉗','㉘','㉙','㉚','㉛','㉜','㉝','㉞','㉟','㊱','㊲','㊳','㊴','㊵','㊶','㊷','㊸','㊹','㊺','㊻','㊼','㊽','㊾','㊿']
 function toC(n) { return n >= 1 && n <= 50 ? CIRC[n-1] : '('+n+')' }
-function toKatakana(v) { return v.replace(/[\u3041-\u3096]/g, c => String.fromCharCode(c.charCodeAt(0)+0x60)) }
 
-function bType(t) {
-  return t === 'pedo'
-    ? <span className="badge b-pedo">小児矯正</span>
-    : <span className="badge b-adult">成人矯正</span>
-}
-
-export default function PatientModal({ patient, doctors, onClose, onUpdate, onUpdatePhase, onOpenCal }) {
-  const [editing, setEditing] = useState(false)
+export default function PatientModal({ patient, doctors, onClose, onUpdate, onUpdatePhase, onOpenCal, onDelete }) {
+  const p = patient
 
   function bgClick(e) { if (e.target.id === 'modal-bg') onClose() }
-
-  const p  = patient
-  const ph = p.phases?.[0]
 
   return (
     <div className="modal-bg" id="modal-bg" onClick={bgClick}>
@@ -26,7 +15,7 @@ export default function PatientModal({ patient, doctors, onClose, onUpdate, onUp
           <div>
             <div style={{fontSize:'13px',fontWeight:600,color:'#111'}}>{p.name}</div>
             <div style={{fontSize:'10px',color:'#999',marginTop:'2px'}}>
-              カルテ番号 {p.chart} · {p.type==='pedo'?'小児矯正':'成人矯正'} · {ph?.cyc==='5'?'5日交換':'1週間交換'}
+              カルテ番号 {p.chart} · {p.type==='pedo'?'小児矯正':'成人矯正'} · {p.phases?.[0]?.cyc==='5'?'5日交換':'1週間交換'}
               {p.type==='pedo'&&p.doc?' · 担当：'+p.doc:''}
             </div>
           </div>
@@ -36,22 +25,19 @@ export default function PatientModal({ patient, doctors, onClose, onUpdate, onUp
           </div>
         </div>
         <div className="modal-body">
-          {/* 編集フォーム（常に表示） */}
           <PatientForm
             initial={p}
             doctors={doctors}
             onSubmit={async (updated) => { await onUpdate(updated); onClose() }}
             onCancel={onClose}
           />
-
-          {/* 追加アライナー情報 */}
           {p.phases?.length > 1 && (
-            <>
+            <div style={{marginTop:'16px',paddingTop:'12px',borderTop:'1px solid #eee'}}>
               {p.phases.slice(1).map((ph2, i) => {
                 const pi = i + 1
                 const iprTxt = ph2.ipr_stages?.length ? ph2.ipr_stages.map(toC).join('・') : 'なし'
                 return (
-                  <div key={pi} style={{marginTop:'12px',paddingTop:'12px',borderTop:'1px solid #eee'}}>
+                  <div key={pi}>
                     <div style={{fontSize:'10px',fontWeight:600,color:'#999',marginBottom:'6px'}}>
                       {pi+1}回目（追加アライナー）
                       <button className="btn-sm" style={{marginLeft:'8px',fontSize:'10px'}} onClick={() => onOpenCal(p)}>カレンダーで編集</button>
@@ -66,8 +52,19 @@ export default function PatientModal({ patient, doctors, onClose, onUpdate, onUp
                   </div>
                 )
               })}
-            </>
+            </div>
           )}
+          <div style={{marginTop:'16px',paddingTop:'12px',borderTop:'1px solid #eee'}}>
+            <button
+              className="btn"
+              style={{fontSize:'12px',color:'#dc2626',borderColor:'#fca5a5',background:'#fff'}}
+              onClick={() => {
+                if (confirm(p.name + 'を削除しますか？この操作は取り消せません。')) {
+                  onDelete(p.id)
+                }
+              }}
+            >この患者を削除する</button>
+          </div>
         </div>
       </div>
     </div>
