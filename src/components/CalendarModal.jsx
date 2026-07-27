@@ -128,7 +128,7 @@ function PhaseForm({ title, submitLabel, initial, onSubmit, onCancel }) {
 
 export default function CalendarModal({
   patient: p, visitDates: vdAll, recalcHistory: rhAll,
-  onClose, onToggleVisit, onSave, onAddPhase, onUpdatePhase, onAddRecalc, onResetRecalc
+  onClose, onToggleVisit, onSave, onAddPhase, onUpdatePhase, onAddRecalc, onResetRecalc, onDeletePhase
 }) {
   const [phaseIdx, setPhaseIdx] = useState(0)
   const [year, setYear] = useState(() => {
@@ -140,10 +140,10 @@ export default function CalendarModal({
   const [recalcStage, setRecalcStage]       = useState('')
   const [recalcDate, setRecalcDate]         = useState('')
 
-  const ph       = p.phases[phaseIdx] || p.phases[0]
-  const phaseNo  = ph?.phaseNo || phaseIdx + 1
-  const vd       = (vdAll[phaseNo] || {})
-  const history  = (rhAll[phaseNo] || [])
+  const ph      = p.phases[phaseIdx] || p.phases[0]
+  const phaseNo = ph?.phaseNo || phaseIdx + 1
+  const vd      = (vdAll[phaseNo] || {})
+  const history = (rhAll[phaseNo] || [])
   const changeDates = buildChangeDates(ph, history)
   const iprDates    = buildIprDates(ph, changeDates)
   const hasOld      = Object.values(changeDates).some(v => v.old)
@@ -155,9 +155,8 @@ export default function CalendarModal({
     setYear(isNaN(s.getTime()) ? new Date().getFullYear() : s.getFullYear())
   }
 
-  async function handleAddPhase(ph) {
-    const newPhaseNo = p.phases.length + 1
-    await onAddPhase(newPhaseNo, ph)
+  async function handleAddPhase(data) {
+    await onAddPhase(p.phases.length + 1, data)
     setShowAddForm(false)
   }
   async function handleUpdatePhase(data) {
@@ -175,12 +174,18 @@ export default function CalendarModal({
     if (!confirm('再計算の履歴をすべてリセットしますか？')) return
     await onResetRecalc(phaseNo)
   }
+  async function handleDeletePhase(pNo) {
+    if (!confirm((phaseIdx+1)+'回目の追加アライナーを削除しますか？この操作は取り消せません。')) return
+    await onDeletePhase(pNo)
+    setPhaseIdx(0); setShowAddForm(false); setShowRecalcForm(false)
+  }
 
   function bgClick(e) { if (e.target.id === 'cal-modal-bg') onClose() }
 
   function doPrint() {
     let html = `<style>
-@page{size:A4 portrait;margin:0}body{font-family:sans-serif;margin:0;padding:4mm;width:210mm;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+@page{size:A4 portrait;margin:0}
+body{font-family:sans-serif;margin:0;padding:4mm;width:210mm;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .pt{text-align:center;font-size:10px;font-weight:700;margin-bottom:3px}
 .mg{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;width:100%}
 .mb{border:1px solid #ccc;border-radius:2px;overflow:hidden;page-break-inside:avoid;break-inside:avoid}
@@ -229,7 +234,7 @@ export default function CalendarModal({
     const firstDow = new Date(year,m,1).getDay()
     const lastDay  = new Date(year,m+1,0).getDate()
     const cells = []
-    for (let k = 0; k < firstDow; k++) cells.push({ empty:true, key:'e'+k })
+    for (let k = 0; k < firstDow; k++) cells.push({ empty:true, key:'e'+k+m })
     for (let day = 1; day <= lastDay; day++) {
       const ds = year+'-'+pad(m+1)+'-'+pad(day)
       cells.push({ day, ds, dow:(firstDow+day-1)%7 })
@@ -256,8 +261,16 @@ export default function CalendarModal({
           {/* フェーズタブ */}
           <div className="cal-phase-tabs">
             {p.phases.map((ph2, i) => (
-              <div key={i} className={'cal-phase-tab'+(phaseIdx===i?' on':'')} onClick={()=>switchPhase(i)}>
-                {i+1}回目
+              <div key={i} style={{display:'flex',alignItems:'center',gap:'4px'}}>
+                <div className={'cal-phase-tab'+(phaseIdx===i?' on':'')} onClick={()=>switchPhase(i)}>
+                  {i+1}回目
+                </div>
+                {i > 0 && (
+                  <button
+                    style={{padding:'2px 6px',fontSize:'10px',background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:'6px',cursor:'pointer',color:'#dc2626',fontWeight:600}}
+                    onClick={() => handleDeletePhase(ph2.phaseNo)}
+                  >削除</button>
+                )}
               </div>
             ))}
           </div>
