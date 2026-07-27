@@ -216,7 +216,6 @@ body{font-family:sans-serif;margin:0;padding:4mm;width:210mm;-webkit-print-color
         html += `<div class="dc${bgc}${isIpr?' ipr':''}"><div class="dn ${nc}">${day}</div>`
         if (vt==='first') html += '<span class="pl pf">初回</span>'
         else if (vt==='at') html += '<span class="pl pat">AT</span>'
-        else if (vt==='visit'||vt==='manual') html += '<span class="pl pv">来院</span>'
         if (ci) html += `<span class="pl ${isOld?'pco':'pc'}">${toC(ci.stg)}</span>`
         html += '</div>'
       }
