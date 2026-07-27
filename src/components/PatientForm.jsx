@@ -19,6 +19,18 @@ export default function PatientForm({ doctors, onSubmit, onCancel, initial = nul
   const [notes, setNotes] = useState(ip?.notes || '')
   const [confirmedTotal, setConfirmedTotal] = useState(ip?.phases?.[0]?.total || null)
   const [iprStages, setIprStages] = useState(ip?.phases?.[0]?.ipr_stages || [])
+  const [composing, setComposing] = useState(false)
+
+  function handleNameChange(e) {
+    const v = e.target.value
+    if (!composing) setName(toKatakana(v))
+    else setName(v)
+  }
+  function handleCompositionStart() { setComposing(true) }
+  function handleCompositionEnd(e) {
+    setComposing(false)
+    setName(toKatakana(e.target.value))
+  }
 
   function handleConfirmTotal() {
     const n = parseInt(total)
@@ -53,7 +65,14 @@ export default function PatientForm({ doctors, onSubmit, onCancel, initial = nul
         <div className="f-grid">
           <div>
             <label className="f-lbl">患者名（カタカナ）</label>
-            <input className="f-inp" value={name} onChange={e => setName(toKatakana(e.target.value))} placeholder="ヤマダ ハナコ" />
+            <input
+              className="f-inp"
+              value={name}
+              onChange={handleNameChange}
+              onCompositionStart={handleCompositionStart}
+              onCompositionEnd={handleCompositionEnd}
+              placeholder="ヤマダ ハナコ"
+            />
           </div>
           <div>
             <label className="f-lbl">カルテ番号（数字のみ）</label>
@@ -94,7 +113,6 @@ export default function PatientForm({ doctors, onSubmit, onCancel, initial = nul
               {confirmedTotal && <span style={{fontSize:'11px',color:'#166534',fontWeight:600}}>✓ {confirmedTotal}枚で確定</span>}
             </div>
           </div>
-
           {confirmedTotal && (
             <div style={{gridColumn:'1/-1'}}>
               <label className="f-lbl" style={{marginBottom:'6px'}}>
@@ -120,7 +138,6 @@ export default function PatientForm({ doctors, onSubmit, onCancel, initial = nul
               )}
             </div>
           )}
-
           <div>
             <label className="f-lbl">現在のアライナー番号</label>
             <input className="f-inp" type="number" value={cur} onChange={e=>setCur(e.target.value)} placeholder="1" min="1" max="60" />
@@ -143,7 +160,6 @@ export default function PatientForm({ doctors, onSubmit, onCancel, initial = nul
             </div>
           </div>
         </div>
-
         <div style={{marginTop:'10px'}}>
           <label className="f-lbl">備考</label>
           <textarea className="f-inp" rows="3" style={{resize:'vertical'}} value={notes} onChange={e=>setNotes(e.target.value)} />
