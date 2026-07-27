@@ -383,7 +383,7 @@ body{font-family:sans-serif;margin:0;padding:4mm;width:210mm;-webkit-print-color
                         <div className={'cal-day-num '+nc}>{day}</div>
                         {vt==='first' && <span className="cal-ev ev-first">初回</span>}
                         {vt==='at' && <span className="cal-ev ev-at" style={{fontSize:'6px'}}>アタッチメント</span>}
-                       {ci && <span className={'cal-ev '+(isOld?'ev-chg-old':'ev-chg')} style={{fontSize:'9px',fontWeight:700}}>{toC(ci.stg)}</span>}
+                        {ci && <span className={'cal-ev '+(isOld?'ev-chg-old':'ev-chg')} style={{fontSize:'9px',fontWeight:700}}>{toC(ci.stg)}</span>}
                       </div>
                     )
                   })}
